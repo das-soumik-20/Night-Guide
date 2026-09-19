@@ -1,0 +1,14 @@
+train: ../data/thermal/images/train
+val: ../data/thermal/images/val
+test: ../data/thermal/images/test
+
+names:
+  0: person
+  1: cycle
+  2: car
+  3: bike
+  4: bus
+  5: truck
+  6: light
+  7: hydrant
+  8: sign
