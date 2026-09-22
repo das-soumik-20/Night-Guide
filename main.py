@@ -15,4 +15,4 @@ def main(path):
 
 
 if __name__ == "__main__":
-    main('data/test_videos/walking.mp4')
+    main('data/test_videos/vid3.mp4')

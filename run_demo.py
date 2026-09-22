@@ -1,13 +1,13 @@
 # run_demo.py
 import cv2
 from ultralytics import YOLO
-from alert_logic import should_alert
+from alert_logic import ObjectTracker
 
 THERMAL_MODEL_PATH = 'runs/detect/thermal_full/weights/best.pt'
 RGB_MODEL_PATH = 'runs/detect/rgb_full/weights/best.pt'
 
 def get_detections(model, frame):
-    results = model.predict(frame, verbose=False)[0]
+    results = model.predict(frame, verbose=False, conf=0.5)[0]
     dets = [
         (results.names[int(box.cls)], float(box.conf), box.xywhn[0].tolist())
         for box in results.boxes
@@ -18,6 +18,7 @@ def get_detections(model, frame):
 def run_on_video(video_path):
     thermal_model = YOLO(THERMAL_MODEL_PATH)
     rgb_model = YOLO(RGB_MODEL_PATH)
+    tracker = ObjectTracker()
 
     cap = cv2.VideoCapture(video_path)
 
@@ -34,13 +35,18 @@ def run_on_video(video_path):
         else:
             chosen_dets, chosen_results, source = rgb_dets, rgb_results, 'RGB'
 
-        alerts = should_alert(chosen_dets)
-        annotated_frame = chosen_results.plot()
+        active_tracks = tracker.update(chosen_dets, frame.shape[0])
+        alerts = tracker.get_alerts(active_tracks)
 
+        for alert in alerts:
+            print(f"ALERT: {alert['class']} to your {alert['direction']}, "
+                  f"{alert['distance_m']}m away")
+
+        annotated_frame = chosen_results.plot()
         cv2.putText(annotated_frame, f"Source: {source}", (20, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         for alert in alerts:
-            cv2.putText(annotated_frame, f"ALERT: {alert['class']} {alert['direction']}",
+            cv2.putText(annotated_frame, f"ALERT: {alert['class']} {alert['direction']} {alert['distance_m']}m",
                         (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
         cv2.imshow('NightCompass Demo', annotated_frame)
@@ -51,4 +57,4 @@ def run_on_video(video_path):
     cv2.destroyAllWindows()
 
 if __name__ == '__main__':
-    run_on_video('data/left_overs/video_thermal_test/sample.mp4')  # quick standalone test
+    run_on_video('data/left_overs/video_thermal_test/sample.mp4')
