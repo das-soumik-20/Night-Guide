@@ -1,13 +1,26 @@
 # run_demo.py
+"""
+Live / offline demo: detect obstacles, track them and raise alerts.
+
+Source can be a video file, an image file, or a camera index (0, 1, 2 ...).
+Model can be 'both' (thermal + RGB, picks the more confident one per frame),
+'thermal', 'rgb', or a path to any YOLO .pt file (e.g. the stock yolov8n.pt).
+"""
+from pathlib import Path
+
 import cv2
 from ultralytics import YOLO
-from alert_logic import ObjectTracker
+
+from alert_logic import ObjectTracker, format_alert
 
 THERMAL_MODEL_PATH = 'runs/detect/thermal_full/weights/best.pt'
 RGB_MODEL_PATH = 'runs/detect/rgb_full/weights/best.pt'
+CONF_THRESHOLD = 0.5
+IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
+
 
 def get_detections(model, frame):
-    results = model.predict(frame, verbose=False, conf=0.5)[0]
+    results = model.predict(frame, verbose=False, conf=CONF_THRESHOLD)[0]
     dets = [
         (results.names[int(box.cls)], float(box.conf), box.xywhn[0].tolist())
         for box in results.boxes
@@ -15,46 +28,76 @@ def get_detections(model, frame):
     avg_conf = sum(d[1] for d in dets) / len(dets) if dets else 0.0
     return dets, avg_conf, results
 
-def run_on_video(video_path):
-    thermal_model = YOLO(THERMAL_MODEL_PATH)
-    rgb_model = YOLO(RGB_MODEL_PATH)
-    tracker = ObjectTracker()
 
-    cap = cv2.VideoCapture(video_path)
+def load_models(model='both'):
+    """Returns a list of (label, YOLO model)."""
+    if model == 'both':
+        return [('THERMAL', YOLO(THERMAL_MODEL_PATH)), ('RGB', YOLO(RGB_MODEL_PATH))]
+    if model == 'thermal':
+        return [('THERMAL', YOLO(THERMAL_MODEL_PATH))]
+    if model == 'rgb':
+        return [('RGB', YOLO(RGB_MODEL_PATH))]
+    return [(Path(model).stem.upper(), YOLO(model))]
 
+
+def open_source(source):
+    """Camera index (int or digit string) or a file path."""
+    if isinstance(source, int) or str(source).isdigit():
+        index = int(source)
+        # CAP_DSHOW opens USB / phone-as-webcam devices much faster on Windows
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW) if hasattr(cv2, 'CAP_DSHOW') else cv2.VideoCapture(index)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(index)
+        return cap, False
+    is_image = Path(str(source)).suffix.lower() in IMAGE_EXTS
+    return cv2.VideoCapture(str(source)), is_image
+
+
+def run_on_video(source, model='both', danger_distance_m=None):
+    models = load_models(model)
+    tracker = ObjectTracker(danger_distance_m) if danger_distance_m else ObjectTracker()
+
+    cap, is_image = open_source(source)
+    if not cap.isOpened():
+        print(f"Could not open source: {source}")
+        return
+
+    print("Running... click the video window, then press 'q' to quit")
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
 
-        thermal_dets, thermal_conf, thermal_results = get_detections(thermal_model, frame)
-        rgb_dets, rgb_conf, rgb_results = get_detections(rgb_model, frame)
-
-        if thermal_conf >= rgb_conf:
-            chosen_dets, chosen_results, source = thermal_dets, thermal_results, 'THERMAL'
-        else:
-            chosen_dets, chosen_results, source = rgb_dets, rgb_results, 'RGB'
+        # run every model, keep the one that is most confident on this frame
+        best = None
+        for label, m in models:
+            dets, conf, results = get_detections(m, frame)
+            if best is None or conf > best[1]:
+                best = (dets, conf, results, label)
+        chosen_dets, _, chosen_results, source_label = best
 
         active_tracks = tracker.update(chosen_dets, frame.shape[0])
         alerts = tracker.get_alerts(active_tracks)
 
         for alert in alerts:
-            print(f"ALERT: {alert['class']} to your {alert['direction']}, "
-                  f"{alert['distance_m']}m away")
+            print(f"ALERT: {format_alert(alert)}")
 
         annotated_frame = chosen_results.plot()
-        cv2.putText(annotated_frame, f"Source: {source}", (20, 30),
+        cv2.putText(annotated_frame, f"Source: {source_label}", (20, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        for alert in alerts:
-            cv2.putText(annotated_frame, f"ALERT: {alert['class']} {alert['direction']} {alert['distance_m']}m",
-                        (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        for i, alert in enumerate(alerts):  # one line per alert, no overlap
+            cv2.putText(annotated_frame, f"ALERT: {format_alert(alert)}",
+                        (20, 65 + 35 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-        cv2.imshow('NightCompass Demo', annotated_frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        cv2.imshow('Night-Guide Demo', annotated_frame)
+        # images stay open until a key is pressed; video/camera keep streaming
+        key = cv2.waitKey(0 if is_image else 1) & 0xFF
+        if key == ord('q') or is_image:
             break
 
     cap.release()
     cv2.destroyAllWindows()
 
+
 if __name__ == '__main__':
-    run_on_video('data/left_overs/video_thermal_test/sample.mp4')
+    run_on_video('data/test_videos/walking.mp4')  # quick standalone test
