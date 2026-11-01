@@ -63,6 +63,19 @@ AVERAGE_REAL_HEIGHTS = {
     'sign': 2.0,            # highly variable, least reliable estimate
 }
 
+# Minimum confidence before a detection counts at all.
+# Classes our trained models are weak on (test mAP50 < 0.3, see results/) need
+# more confidence, otherwise they produce false alarms - e.g. a seated person
+# detected as 'cycle 0.54'. Raise/lower these as the models improve.
+DEFAULT_MIN_CONFIDENCE = 0.5
+MIN_CONFIDENCE = {
+    'bicycle': 0.7,
+    'truck': 0.7,
+    'sign': 0.7,
+    'fire hydrant': 0.7,
+    'traffic light': 0.7,
+}
+
 # How dangerous a class is when it is close. Higher = announced first.
 RISK_LEVELS = {
     'pothole': 3,
@@ -116,12 +129,18 @@ def estimate_distance_meters(class_name, box, frame_height_px):
     return round((AVERAGE_REAL_HEIGHTS[class_name] * FOCAL_LENGTH_PX) / pixel_height, 2)
 
 
+def passes_confidence(class_name, confidence):
+    """Per-class confidence check (see MIN_CONFIDENCE)."""
+    name = normalize_class(class_name)
+    return confidence >= MIN_CONFIDENCE.get(name, DEFAULT_MIN_CONFIDENCE)
+
+
 def filter_relevant(detections):
-    """Normalize class names and drop anything that isn't a pedestrian obstacle."""
+    """Normalize class names, drop non-obstacles and low-confidence guesses."""
     out = []
     for class_name, confidence, box in detections:
         name = normalize_class(class_name)
-        if name in RELEVANT_CLASSES:
+        if name in RELEVANT_CLASSES and passes_confidence(name, confidence):
             out.append((name, confidence, tuple(box)))
     return out
 

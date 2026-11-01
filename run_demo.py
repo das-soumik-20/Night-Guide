@@ -11,16 +11,24 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-from alert_logic import ObjectTracker, format_alert
+from alert_logic import DEFAULT_MIN_CONFIDENCE, ObjectTracker, format_alert, passes_confidence
 
 THERMAL_MODEL_PATH = 'runs/detect/thermal_full/weights/best.pt'
 RGB_MODEL_PATH = 'runs/detect/rgb_full/weights/best.pt'
-CONF_THRESHOLD = 0.5
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
 
 
 def get_detections(model, frame):
-    results = model.predict(frame, verbose=False, conf=CONF_THRESHOLD)[0]
+    results = model.predict(frame, verbose=False, conf=DEFAULT_MIN_CONFIDENCE)[0]
+    # drop weak-class guesses below their own threshold, so they are neither
+    # drawn on screen nor alerted on
+    keep = [i for i, box in enumerate(results.boxes)
+            if passes_confidence(results.names[int(box.cls)], float(box.conf))]
+    if len(keep) != len(results.boxes):
+        try:
+            results = results[keep]
+        except Exception:  # older/newer ultralytics versions
+            results.update(boxes=results.boxes.data[keep])
     dets = [
         (results.names[int(box.cls)], float(box.conf), box.xywhn[0].tolist())
         for box in results.boxes

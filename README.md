@@ -45,6 +45,20 @@ python test_alert.py                                    # check the alert logic
 ```
 Press `q` in the video window to quit.
 
+### Using a phone as the camera (DroidCam)
+DroidCam's Windows virtual webcam does not work with OpenCV (green/empty frames), so read the phone's stream directly over Wi-Fi instead:
+1. Install the **DroidCam** app on the phone; laptop and phone on the same Wi-Fi.
+2. Open the app and note the **Wi-Fi IP** it shows (it can change after reconnecting).
+3. Make sure nothing else is using the phone: close the DroidCam Windows client and any browser tab showing the stream – the phone serves **one viewer at a time** and otherwise replies "DroidCam is Busy".
+4. Run:
+   ```bash
+   python main.py --source http://<phone-ip>:4747/video --model rgb
+   ```
+Use `--model rgb` for a phone: it is a normal colour camera, the thermal model expects heat images.
+
+### Confidence thresholds
+A detection must be ≥ 50% confident to count. Classes the models are weak on (bicycle, truck, sign, fire hydrant, traffic light) need ≥ 70% to avoid false alarms. Tune `MIN_CONFIDENCE` in `alert_logic.py`.
+
 ## Results (held-out test set, mAP50)
 | Model | Overall | person | car | bike (motorcycle) |
 |---|---|---|---|---|

@@ -47,6 +47,14 @@ def test_class_names_and_filtering():
     assert names == ['bicycle', 'sign'], names
 
 
+def test_weak_classes_need_more_confidence():
+    dets = [('cycle', 0.54, (0.4, 0.7, 0.3, 0.5)),         # the false 'cycle 0.54' from the phone test
+            ('cycle', 0.75, (0.4, 0.7, 0.3, 0.5)),         # confident bicycle -> kept
+            ('person', 0.55, (0.5, 0.6, 0.3, 0.6))]        # strong class, normal 0.5 threshold
+    kept = [(n, c) for n, c, _ in filter_relevant(dets)]
+    assert kept == [('bicycle', 0.75), ('person', 0.55)], kept
+
+
 def test_fallback_without_height_and_ranking():
     tr = ObjectTracker()
     dets = [('dog', 0.9, (0.8, 0.7, 0.2, 0.6)),            # no known height -> 'close' bucket
