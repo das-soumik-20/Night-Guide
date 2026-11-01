@@ -17,6 +17,8 @@ from alert_logic import DEFAULT_MIN_CONFIDENCE, ObjectTracker, format_alert, pas
 THERMAL_MODEL_PATH = 'runs/detect/thermal_full/weights/best.pt'
 RGB_MODEL_PATH = 'runs/detect/rgb_full/weights/best.pt'
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
+MAX_PREVIEW_HEIGHT = 900   # px; keeps tall phone videos on screen
+MAX_PREVIEW_WIDTH = 1600
 
 
 def get_detections(model, frame, show_conf=None):
@@ -126,7 +128,11 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, s
         elif save_path and is_image:
             cv2.imwrite(save_path, annotated_frame)
 
-        cv2.imshow('Night-Guide Demo', annotated_frame)
+        # shrink the preview to fit on screen (saved output keeps full resolution)
+        h, w = annotated_frame.shape[:2]
+        scale = min(1.0, MAX_PREVIEW_HEIGHT / h, MAX_PREVIEW_WIDTH / w)
+        preview = cv2.resize(annotated_frame, None, fx=scale, fy=scale) if scale < 1 else annotated_frame
+        cv2.imshow('Night-Guide Demo', preview)
         # images stay open until a key is pressed; video/camera keep streaming
         key = cv2.waitKey(0 if is_image else 1) & 0xFF
         if key == ord('s'):
