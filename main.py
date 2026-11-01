@@ -9,6 +9,7 @@ Examples:
     python main.py --source 2 --model rgb            # phone used as a webcam (find the index with find_camera.py)
     python main.py --source 0 --model yolov8n.pt     # stock COCO model, handy for indoor testing
     python main.py --source 0 --enhance off          # compare without the low-light boost
+    python main.py --source 0 --show-conf 0.2        # debug: also draw low-confidence detections
     python main.py --evaluate                        # re-run test-set evaluation for both models
 """
 import argparse
@@ -34,6 +35,8 @@ def main():
                         help='alert when an object is closer than this many metres (default 2.0)')
     parser.add_argument('--enhance', choices=['auto', 'on', 'off'], default='auto',
                         help="low-light boost: 'auto' = only on dark frames (default), 'on' = always, 'off' = never")
+    parser.add_argument('--show-conf', type=float, default=None,
+                        help='debug: draw every detection above this confidence (e.g. 0.2); alerts unchanged')
     parser.add_argument('--evaluate', action='store_true',
                         help='evaluate both trained models on the test split instead of running the demo')
     args = parser.parse_args()
@@ -44,7 +47,7 @@ def main():
 
     print("\nRunning demo...")
     run_on_video(args.source, model=args.model, danger_distance_m=args.danger_distance,
-                 enhance=args.enhance)
+                 enhance=args.enhance, show_conf=args.show_conf)
 
 
 if __name__ == "__main__":

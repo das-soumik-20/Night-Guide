@@ -6,6 +6,7 @@ Source can be a video file, an image file, or a camera index (0, 1, 2 ...).
 Model can be 'both' (thermal + RGB, picks the more confident one per frame),
 'thermal', 'rgb', or a path to any YOLO .pt file (e.g. the stock yolov8n.pt).
 """
+import time
 from pathlib import Path
 
 import cv2
@@ -19,12 +20,18 @@ RGB_MODEL_PATH = 'runs/detect/rgb_full/weights/best.pt'
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
 
 
-def get_detections(model, frame):
-    results = model.predict(frame, verbose=False, conf=DEFAULT_MIN_CONFIDENCE)[0]
+def get_detections(model, frame, show_conf=None):
+    """
+    show_conf=None: normal mode, per-class thresholds from alert_logic.
+    show_conf=0.25 (--show-conf): debug mode, draw everything above that
+    confidence so you can see what the model *almost* detected. Alerts still
+    use the normal thresholds (the tracker filters again).
+    """
+    results = model.predict(frame, verbose=False, conf=show_conf or DEFAULT_MIN_CONFIDENCE)[0]
     # drop weak-class guesses below their own threshold, so they are neither
     # drawn on screen nor alerted on
     keep = [i for i, box in enumerate(results.boxes)
-            if passes_confidence(results.names[int(box.cls)], float(box.conf))]
+            if show_conf or passes_confidence(results.names[int(box.cls)], float(box.conf))]
     if len(keep) != len(results.boxes):
         try:
             results = results[keep]
@@ -62,7 +69,16 @@ def open_source(source):
     return cv2.VideoCapture(str(source)), is_image
 
 
-def run_on_video(source, model='both', danger_distance_m=None, enhance='auto'):
+def save_snapshot(raw, model_input, annotated):
+    """'s' key: save what the camera gave, what the model saw, and the result."""
+    Path('snapshots').mkdir(exist_ok=True)
+    stamp = time.strftime('%H%M%S')
+    for name, img in (('raw', raw), ('model_input', model_input), ('annotated', annotated)):
+        cv2.imwrite(f'snapshots/{stamp}_{name}.jpg', img)
+    print(f"Saved snapshots/{stamp}_*.jpg")
+
+
+def run_on_video(source, model='both', danger_distance_m=None, enhance='auto', show_conf=None):
     models = load_models(model)
     tracker = ObjectTracker(danger_distance_m) if danger_distance_m else ObjectTracker()
 
@@ -71,7 +87,7 @@ def run_on_video(source, model='both', danger_distance_m=None, enhance='auto'):
         print(f"Could not open source: {source}")
         return
 
-    print("Running... click the video window, then press 'q' to quit")
+    print("Running... click the video window, press 's' to save a snapshot, 'q' to quit")
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
@@ -85,10 +101,10 @@ def run_on_video(source, model='both', danger_distance_m=None, enhance='auto'):
         best = None
         for label, m in models:
             model_input = frame if label == 'THERMAL' else enhanced
-            dets, conf, results = get_detections(m, model_input)
+            dets, conf, results = get_detections(m, model_input, show_conf)
             if best is None or conf > best[1]:
-                best = (dets, conf, results, label)
-        chosen_dets, _, chosen_results, source_label = best
+                best = (dets, conf, results, label, model_input)
+        chosen_dets, _, chosen_results, source_label, chosen_input = best
 
         active_tracks = tracker.update(chosen_dets, frame.shape[0])
         alerts = tracker.get_alerts(active_tracks)
@@ -109,6 +125,8 @@ def run_on_video(source, model='both', danger_distance_m=None, enhance='auto'):
         cv2.imshow('Night-Guide Demo', annotated_frame)
         # images stay open until a key is pressed; video/camera keep streaming
         key = cv2.waitKey(0 if is_image else 1) & 0xFF
+        if key == ord('s'):
+            save_snapshot(frame, chosen_input, annotated_frame)
         if key == ord('q') or is_image:
             break
 
