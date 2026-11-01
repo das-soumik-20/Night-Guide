@@ -12,7 +12,8 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-from alert_logic import DEFAULT_MIN_CONFIDENCE, ObjectTracker, format_alert, passes_confidence
+from alert_logic import (DANGER_DISTANCE_M, DEFAULT_MIN_CONFIDENCE, MIN_PERSIST_S, ObjectTracker,
+                         format_alert, passes_confidence)
 
 THERMAL_MODEL_PATH = 'runs/detect/thermal_full/weights/best.pt'
 RGB_MODEL_PATH = 'runs/detect/rgb_full/weights/best.pt'
@@ -79,11 +80,42 @@ def save_snapshot(raw, annotated):
     print(f"Saved snapshots/{stamp}_*.jpg")
 
 
+CLASS_COLORS = {  # BGR
+    'person': (255, 80, 0), 'car': (0, 200, 255), 'motorcycle': (180, 0, 255),
+    'bicycle': (0, 255, 0), 'bus': (0, 140, 255), 'truck': (0, 90, 255),
+}
+ALERT_HOLD_S = 2.0  # keep each alert on screen this long so it can be read
+
+
+def draw_tracks(frame, tracks):
+    """Draw confirmed objects with class, confidence and estimated distance."""
+    H, W = frame.shape[:2]
+    thick = max(2, round(H / 500))
+    font = max(0.5, H / 1600)
+    for t in tracks:
+        cx, cy, bw, bh = t['box']
+        x1, y1 = int((cx - bw / 2) * W), int((cy - bh / 2) * H)
+        x2, y2 = int((cx + bw / 2) * W), int((cy + bh / 2) * H)
+        color = CLASS_COLORS.get(t['class_name'], (200, 200, 200))
+        label = f"{t['class_name']} {t['confidence']:.2f}"
+        if t['distance_m'] is not None:
+            label += f" {t['distance_m']:.1f}m"
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, thick)
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font, thick)
+        ty = max(y1, th + 6)
+        cv2.rectangle(frame, (x1, ty - th - 6), (x1 + tw + 4, ty), color, -1)
+        cv2.putText(frame, label, (x1 + 2, ty - 4), cv2.FONT_HERSHEY_SIMPLEX, font, (255, 255, 255), thick)
+    return frame
+
+
 def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, save_path=None):
     models = load_models(model)
-    tracker = ObjectTracker(danger_distance_m) if danger_distance_m else ObjectTracker()
-
     cap, is_image = open_source(source)
+    is_file = not (isinstance(source, int) or str(source).isdigit() or str(source).startswith('http'))
+    # a single photo can't show persistence, so confirm immediately there
+    tracker = ObjectTracker(danger_distance_m or DANGER_DISTANCE_M, 0 if is_image else MIN_PERSIST_S)
+    on_screen = []  # (alert text, expiry time)
+
     if not cap.isOpened():
         print(f"Could not open source: {source}")
         return
@@ -106,18 +138,33 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, s
                 best = (dets, conf, results, label)
         chosen_dets, _, chosen_results, source_label = best
 
-        active_tracks = tracker.update(chosen_dets, frame.shape[0], frame_width_px=frame.shape[1])
-        alerts = tracker.get_alerts(active_tracks)
+        # video files use their own timeline: processing is slower than real
+        # time, and "seen for 1 second" must mean 1 second of video
+        now = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0 if is_file else time.time()
+
+        active_tracks = tracker.update(chosen_dets, frame.shape[0], now=now,
+                                       frame_width_px=frame.shape[1])
+        alerts = tracker.get_alerts(active_tracks, now=now)
 
         for alert in alerts:
-            print(f"ALERT: {format_alert(alert)}")
+            stamp = f"[{now:6.1f}s] " if is_file else ""
+            print(f"{stamp}ALERT: {format_alert(alert)}")
+            on_screen.append((f"ALERT: {format_alert(alert)}", now + ALERT_HOLD_S))
+        on_screen = [(text, until) for text, until in on_screen if until > now][-4:]
 
-        annotated_frame = chosen_results.plot()
-        cv2.putText(annotated_frame, f"Source: {source_label}", (20, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        for i, alert in enumerate(alerts):  # one line per alert, no overlap
-            cv2.putText(annotated_frame, f"ALERT: {format_alert(alert)}",
-                        (20, 65 + 35 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+        if show_conf:  # debug: raw model output, every box above --show-conf
+            annotated_frame = chosen_results.plot()
+        else:          # normal: only objects confirmed by the tracker
+            confirmed = [t for t in active_tracks if tracker.is_confirmed(t, now)]
+            annotated_frame = draw_tracks(frame.copy(), confirmed)
+
+        H = annotated_frame.shape[0]
+        font, thick, line = max(0.8, H / 1200), max(2, round(H / 500)), int(max(35, H / 30))
+        cv2.putText(annotated_frame, f"Source: {source_label}", (20, line),
+                    cv2.FONT_HERSHEY_SIMPLEX, font, (0, 255, 0), thick)
+        for i, (text, _) in enumerate(on_screen):  # one line per alert, no overlap
+            cv2.putText(annotated_frame, text, (20, line * (i + 2)),
+                        cv2.FONT_HERSHEY_SIMPLEX, font, (0, 0, 255), thick)
 
         if save_path and not is_image:
             if writer is None:

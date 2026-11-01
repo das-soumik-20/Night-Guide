@@ -5,7 +5,8 @@ Low-Light and Night-Time Obstacle Detection for Blind Pedestrians: an obstacle d
 1. **Detect** – two YOLOv8n models trained on the FLIR dataset, one on thermal images and one on RGB. On each frame both run and the more confident one is used.
 2. **Track** – `ObjectTracker` gives every obstacle a persistent ID across frames, so the same car isn't announced over and over.
 3. **Measure** – distance in metres from the pinhole camera formula (`real height × focal length ÷ pixel height`, with the focal length scaled to the video's resolution), direction (left / center / right) from the box position.
-4. **Alert** – only for real pedestrian obstacles closer than 2 m (configurable), only once per object unless it gets ≥0.3 m closer, most dangerous first.
+4. **Confirm** – an object is only shown and alerted on after it has been tracked for ≥1 s and detected in ≥60% of those frames, so one-frame false positives are filtered out.
+5. **Alert** – only for real pedestrian obstacles closer than 2 m (configurable), only once per object unless it gets ≥0.3 m closer, the same class + direction not repeated within 3 s, most dangerous first. Alerts stay on screen for 2 s.
 
 ## Project layout
 | File | Purpose |

@@ -24,14 +24,14 @@ def test_merge_and_first_alert():
     merged = merge_detections(thermal, rgb)
     assert len(merged) == 2, merged                        # duplicate person removed
 
-    alerts = frame(ObjectTracker(), merged, t=0.0)
+    alerts = frame(ObjectTracker(min_persist_s=0), merged, t=0.0)
     assert [a['class'] for a in alerts] == ['person'], alerts
     assert alerts[0]['direction'] == 'left'
     print("first alert:", format_alert(alerts[0]))
 
 
 def test_no_repeat_unless_closer():
-    tr = ObjectTracker()
+    tr = ObjectTracker(min_persist_s=0)
     person = lambda h: [('person', 0.9, (0.5, 0.5, 0.2, h))]
     assert frame(tr, person(0.80), t=0.0)                  # ~1.66 m -> alert
     assert not frame(tr, person(0.80), t=0.5)              # same distance -> silent
@@ -65,12 +65,52 @@ def test_distance_independent_of_resolution():
 
 
 def test_fallback_without_height_and_ranking():
-    tr = ObjectTracker()
+    tr = ObjectTracker(min_persist_s=0)
     dets = [('dog', 0.9, (0.8, 0.7, 0.2, 0.6)),            # no known height -> 'close' bucket
             ('car', 0.9, (0.3, 0.5, 0.4, 0.9))]            # ~1.3 m
     alerts = frame(tr, dets, t=0.0)
     assert [a['class'] for a in alerts] == ['car', 'dog'], alerts
     assert alerts[1]['distance_m'] is None
+
+
+def run_frames(tracker, dets_at, t_end, fps=30):
+    """Feed frames at `fps` until t_end; dets_at(frame_index) gives detections."""
+    fired = []
+    for i in range(int(t_end * fps)):
+        t = i / fps
+        fired += [(round(t, 2), a['class']) for a in frame(tracker, dets_at(i), t)]
+    return fired
+
+
+CLOSE_PERSON = [('person', 0.8, (0.5, 0.5, 0.2, 0.8))]
+
+
+def test_flicker_never_alerts():
+    # false positive that appears for a few frames only
+    fired = run_frames(ObjectTracker(), lambda i: CLOSE_PERSON if i < 5 else [], 3.0)
+    assert fired == [], fired
+
+
+def test_persistent_object_alerts_once_after_1s():
+    fired = run_frames(ObjectTracker(), lambda i: CLOSE_PERSON, 3.0)
+    assert len(fired) == 1 and 1.0 <= fired[0][0] < 1.1, fired
+
+
+def test_intermittent_detection_is_not_trusted():
+    # seen in only 1 of every 3 frames (33% < 60%)
+    fired = run_frames(ObjectTracker(), lambda i: CLOSE_PERSON if i % 3 == 0 else [], 3.0)
+    assert fired == [], fired
+
+
+def test_cooldown_same_class_same_side():
+    # car A on the left from t=0; car B (also left) appears at t=1.5 -> within 3 s, stays silent
+    def dets(i):
+        d = [('car', 0.9, (0.2, 0.5, 0.3, 0.9))]
+        if i >= 45:
+            d.append(('car', 0.9, (0.2, 0.15, 0.3, 0.9)))
+        return d
+    fired = run_frames(ObjectTracker(), dets, 3.0)
+    assert [c for _, c in fired] == ['car'], fired
 
 
 if __name__ == '__main__':

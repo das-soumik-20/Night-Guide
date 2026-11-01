@@ -111,6 +111,9 @@ RE_ALERT_CLOSER_MARGIN_M = 0.3   # an object must get this much closer to re-ale
 MIN_TIME_BETWEEN_ALERTS_S = 1.0  # debounce, avoids double-firing on noisy frames
 MAX_MATCH_DIST = 0.15            # normalized centroid distance to count as "same object"
 TRACK_TIMEOUT_S = 2.0            # forget an object if unseen this long
+MIN_PERSIST_S = 1.0              # an object must be tracked this long before it is shown/alerted
+MIN_HIT_RATIO = 0.6              # ...and detected in at least 60% of the frames in that time
+ALERT_COOLDOWN_S = 3.0           # don't repeat the same class+direction alert within this time
 
 
 def estimate_direction(box):
@@ -187,12 +190,20 @@ class ObjectTracker:
     same-class detections to the nearest previous position. Without this,
     every frame is anonymous and there's no way to tell 'the same car'
     from a brand new one two frames later.
+
+    A track only becomes *confirmed* once it has been seen for at least
+    min_persist_s seconds in at least MIN_HIT_RATIO of the frames since it
+    first appeared. Flickering one-frame false positives never get there, so
+    they are neither drawn nor announced.
     """
 
-    def __init__(self, danger_distance_m=DANGER_DISTANCE_M):
+    def __init__(self, danger_distance_m=DANGER_DISTANCE_M, min_persist_s=MIN_PERSIST_S):
         self.tracks = {}
         self._next_id = 0
         self.danger_distance_m = danger_distance_m
+        self.min_persist_s = min_persist_s
+        self.frame_idx = 0
+        self._last_announced = {}   # (class, direction) -> time, for the cooldown
 
     def _new_id(self):
         self._next_id += 1
@@ -200,7 +211,7 @@ class ObjectTracker:
 
     def _measure(self, class_name, box, frame_height_px, frame_width_px=None):
         return {
-            'cx': box[0], 'cy': box[1],
+            'cx': box[0], 'cy': box[1], 'box': tuple(box),
             'distance_m': estimate_distance_meters(class_name, box, frame_height_px, frame_width_px),
             'proximity': estimate_proximity(box),
             'direction': estimate_direction(box),
@@ -209,6 +220,7 @@ class ObjectTracker:
     def update(self, detections, frame_height_px, now=None, frame_width_px=None):
         """Feed one frame of raw detections. Returns the tracks seen this frame."""
         now = time.time() if now is None else now
+        self.frame_idx += 1
         detections = filter_relevant(detections)
         unmatched = list(range(len(detections)))
         touched_ids = []
@@ -228,6 +240,7 @@ class ObjectTracker:
                 class_name, confidence, box = detections[best_i]
                 track.update(self._measure(class_name, box, frame_height_px, frame_width_px))
                 track.update({'confidence': confidence, 'last_seen': now})
+                track['hits'] += 1
                 unmatched.remove(best_i)
                 touched_ids.append(track_id)
 
@@ -239,6 +252,9 @@ class ObjectTracker:
                 'id': track_id,
                 'class_name': class_name,
                 'confidence': confidence,
+                'first_seen': now,
+                'first_frame': self.frame_idx,
+                'hits': 1,
                 'last_seen': now,
                 'last_alert_time': None,
                 'last_alert_distance': None,
@@ -253,6 +269,16 @@ class ObjectTracker:
 
         return [self.tracks[tid] for tid in touched_ids if tid in self.tracks]
 
+    def is_confirmed(self, track, now=None):
+        """Seen long enough and consistently enough to be trusted."""
+        if self.min_persist_s <= 0:
+            return True
+        now = time.time() if now is None else now
+        if now - track['first_seen'] < self.min_persist_s:
+            return False
+        frames_since_first = self.frame_idx - track['first_frame'] + 1
+        return track['hits'] / frames_since_first >= MIN_HIT_RATIO
+
     def _is_close(self, track):
         if track['distance_m'] is not None:
             return track['distance_m'] <= self.danger_distance_m
@@ -260,14 +286,15 @@ class ObjectTracker:
 
     def get_alerts(self, active_tracks, now=None):
         """
-        Alerts for objects that are close AND either seen for the first time
-        or getting meaningfully closer. Most urgent first.
+        Alerts for objects that are confirmed, close, AND either new or getting
+        meaningfully closer. The same kind of alert (class + direction) is not
+        repeated within ALERT_COOLDOWN_S. Most urgent first.
         """
         now = time.time() if now is None else now
         alerts = []
 
         for track in active_tracks:
-            if not self._is_close(track):
+            if not self.is_confirmed(track, now) or not self._is_close(track):
                 continue
 
             distance_m = track['distance_m']
@@ -284,6 +311,13 @@ class ObjectTracker:
             else:
                 fire = False
 
+            # don't repeat "car to your left" for every car in a row of parked cars
+            key = (track['class_name'], track['direction'])
+            if fire and last_time is None and now - self._last_announced.get(key, -1e9) < ALERT_COOLDOWN_S:
+                fire = False
+                track['last_alert_time'] = now          # treat as announced, so it
+                track['last_alert_distance'] = distance_m  # can still fire if it gets closer
+
             if fire:
                 alerts.append({
                     'id': track['id'],
@@ -294,5 +328,6 @@ class ObjectTracker:
                 })
                 track['last_alert_time'] = now
                 track['last_alert_distance'] = distance_m
+                self._last_announced[key] = now
 
         return rank_alerts(alerts)
