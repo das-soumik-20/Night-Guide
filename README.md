@@ -4,7 +4,7 @@ Low-Light and Night-Time Obstacle Detection for Blind Pedestrians: an obstacle d
 ## How it works
 1. **Detect** – two YOLOv8n models trained on the FLIR dataset, one on thermal images and one on RGB. On each frame both run and the more confident one is used.
 2. **Track** – `ObjectTracker` gives every obstacle a persistent ID across frames, so the same car isn't announced over and over.
-3. **Measure** – distance in metres from the pinhole camera formula (`real height × focal length ÷ pixel height`), direction (left / center / right) from the box position.
+3. **Measure** – distance in metres from the pinhole camera formula (`real height × focal length ÷ pixel height`, with the focal length scaled to the video's resolution), direction (left / center / right) from the box position.
 4. **Alert** – only for real pedestrian obstacles closer than 2 m (configurable), only once per object unless it gets ≥0.3 m closer, most dangerous first.
 
 ## Project layout
@@ -69,7 +69,7 @@ A detection must be ≥ 50% confident to count. Classes the models are weak on (
 Bicycle, truck, traffic light, hydrant and sign are still weak (< 0.3); the test split has no buses.
 
 ## Known limitations / next steps
-- `FOCAL_LENGTH_PX` in `alert_logic.py` is a placeholder – calibrate it for the actual camera or distances will be off.
+- Distances assume a typical phone lens (`FOCAL_RATIO = 0.72` in `alert_logic.py`) and average object heights (a person = 1.7 m), so they are estimates. Calibrate `FOCAL_RATIO` for a specific camera (method in the code comment); the FLIR thermal camera has a different lens.
 - Both models currently see the **same** frame. True RGB + thermal fusion needs two camera feeds; `merge_detections.py` is ready for that.
 - Improve weak classes (more data, class weighting, or a larger model such as YOLOv8s).
 

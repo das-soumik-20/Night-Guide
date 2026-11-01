@@ -55,6 +55,15 @@ def test_weak_classes_need_more_confidence():
     assert kept == [('bicycle', 0.75), ('person', 0.55)], kept
 
 
+def test_distance_independent_of_resolution():
+    from alert_logic import estimate_distance_meters
+    box = (0.5, 0.5, 0.1, 0.25)                            # same scene, person 25% of frame height
+    low = estimate_distance_meters('person', box, 850, 478)     # compressed portrait copy
+    high = estimate_distance_meters('person', box, 1920, 1080)  # original portrait video
+    assert low == high, (low, high)
+    assert 4.5 < high < 5.5, high                           # ~4.9 m for a 26 mm-equivalent phone lens
+
+
 def test_fallback_without_height_and_ranking():
     tr = ObjectTracker()
     dets = [('dog', 0.9, (0.8, 0.7, 0.2, 0.6)),            # no known height -> 'close' bucket

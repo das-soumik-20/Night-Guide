@@ -13,12 +13,27 @@ with the box normalized to 0-1, exactly as YOLO's `box.xywhn` gives it.
 import time
 
 # ---------------------------------------------------------------------
-# Camera calibration
-# Wrong focal length = wrong metres, even if everything else works.
-# Calibrate: photograph an object of known height H (m) at a known distance D (m),
-# measure its pixel height P, then FOCAL_LENGTH_PX = P * D / H.
+# Camera focal length
+# The focal length in *pixels* depends on the video resolution: the same
+# scene recorded at 1920 px instead of 850 px makes every object 2.26x taller
+# in pixels. So instead of one fixed number we store it relative to the
+# frame's longer side, which works at any resolution and orientation:
+#     focal_px = FOCAL_RATIO * max(frame_width, frame_height)
+# 0.72 matches a typical phone main camera (~26 mm equivalent lens, 16:9 video).
+#
+# Calibrate for a specific camera: film an object of known height H (m) at a
+# known distance D (m), read its box height P (px) in a frame whose longer
+# side is L (px), then FOCAL_RATIO = P * D / (H * L).
+# Set FOCAL_LENGTH_PX to a number to force a fixed value instead.
 # ---------------------------------------------------------------------
-FOCAL_LENGTH_PX = 376  # placeholder - replace with the calibrated value for your camera
+FOCAL_RATIO = 0.72
+FOCAL_LENGTH_PX = None
+
+
+def focal_length_px(frame_height_px, frame_width_px=None):
+    if FOCAL_LENGTH_PX:
+        return FOCAL_LENGTH_PX
+    return FOCAL_RATIO * max(frame_height_px, frame_width_px or 0)
 
 # ---------------------------------------------------------------------
 # Class names
@@ -117,7 +132,7 @@ def estimate_proximity(box):
     return 'far'
 
 
-def estimate_distance_meters(class_name, box, frame_height_px):
+def estimate_distance_meters(class_name, box, frame_height_px, frame_width_px=None):
     """Pinhole camera model: distance = real_height * focal_length / pixel_height."""
     class_name = normalize_class(class_name)
     if class_name not in AVERAGE_REAL_HEIGHTS:
@@ -126,7 +141,8 @@ def estimate_distance_meters(class_name, box, frame_height_px):
     pixel_height = h_normalized * frame_height_px
     if pixel_height <= 0:
         return None
-    return round((AVERAGE_REAL_HEIGHTS[class_name] * FOCAL_LENGTH_PX) / pixel_height, 2)
+    focal = focal_length_px(frame_height_px, frame_width_px)
+    return round((AVERAGE_REAL_HEIGHTS[class_name] * focal) / pixel_height, 2)
 
 
 def passes_confidence(class_name, confidence):
@@ -182,15 +198,15 @@ class ObjectTracker:
         self._next_id += 1
         return self._next_id
 
-    def _measure(self, class_name, box, frame_height_px):
+    def _measure(self, class_name, box, frame_height_px, frame_width_px=None):
         return {
             'cx': box[0], 'cy': box[1],
-            'distance_m': estimate_distance_meters(class_name, box, frame_height_px),
+            'distance_m': estimate_distance_meters(class_name, box, frame_height_px, frame_width_px),
             'proximity': estimate_proximity(box),
             'direction': estimate_direction(box),
         }
 
-    def update(self, detections, frame_height_px, now=None):
+    def update(self, detections, frame_height_px, now=None, frame_width_px=None):
         """Feed one frame of raw detections. Returns the tracks seen this frame."""
         now = time.time() if now is None else now
         detections = filter_relevant(detections)
@@ -210,7 +226,7 @@ class ObjectTracker:
 
             if best_i is not None:
                 class_name, confidence, box = detections[best_i]
-                track.update(self._measure(class_name, box, frame_height_px))
+                track.update(self._measure(class_name, box, frame_height_px, frame_width_px))
                 track.update({'confidence': confidence, 'last_seen': now})
                 unmatched.remove(best_i)
                 touched_ids.append(track_id)
@@ -226,7 +242,7 @@ class ObjectTracker:
                 'last_seen': now,
                 'last_alert_time': None,
                 'last_alert_distance': None,
-                **self._measure(class_name, box, frame_height_px),
+                **self._measure(class_name, box, frame_height_px, frame_width_px),
             }
             touched_ids.append(track_id)
 

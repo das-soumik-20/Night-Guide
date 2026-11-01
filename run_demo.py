@@ -106,7 +106,7 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, s
                 best = (dets, conf, results, label)
         chosen_dets, _, chosen_results, source_label = best
 
-        active_tracks = tracker.update(chosen_dets, frame.shape[0])
+        active_tracks = tracker.update(chosen_dets, frame.shape[0], frame_width_px=frame.shape[1])
         alerts = tracker.get_alerts(active_tracks)
 
         for alert in alerts:
