@@ -12,6 +12,7 @@ import cv2
 from ultralytics import YOLO
 
 from alert_logic import DEFAULT_MIN_CONFIDENCE, ObjectTracker, format_alert, passes_confidence
+from low_light import maybe_enhance
 
 THERMAL_MODEL_PATH = 'runs/detect/thermal_full/weights/best.pt'
 RGB_MODEL_PATH = 'runs/detect/rgb_full/weights/best.pt'
@@ -61,7 +62,7 @@ def open_source(source):
     return cv2.VideoCapture(str(source)), is_image
 
 
-def run_on_video(source, model='both', danger_distance_m=None):
+def run_on_video(source, model='both', danger_distance_m=None, enhance='auto'):
     models = load_models(model)
     tracker = ObjectTracker(danger_distance_m) if danger_distance_m else ObjectTracker()
 
@@ -76,10 +77,15 @@ def run_on_video(source, model='both', danger_distance_m=None):
         if not ret:
             break
 
+        # brighten + boost contrast on dark frames (see low_light.py);
+        # thermal images are not "dark" in the same sense, so they get the original
+        enhanced, was_enhanced, mean_brightness = maybe_enhance(frame, enhance)
+
         # run every model, keep the one that is most confident on this frame
         best = None
         for label, m in models:
-            dets, conf, results = get_detections(m, frame)
+            model_input = frame if label == 'THERMAL' else enhanced
+            dets, conf, results = get_detections(m, model_input)
             if best is None or conf > best[1]:
                 best = (dets, conf, results, label)
         chosen_dets, _, chosen_results, source_label = best
@@ -91,7 +97,10 @@ def run_on_video(source, model='both', danger_distance_m=None):
             print(f"ALERT: {format_alert(alert)}")
 
         annotated_frame = chosen_results.plot()
-        cv2.putText(annotated_frame, f"Source: {source_label}", (20, 30),
+        status = f"Source: {source_label}"
+        if was_enhanced and source_label != 'THERMAL':
+            status += f" | low-light boost (brightness {mean_brightness:.0f})"
+        cv2.putText(annotated_frame, status, (20, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         for i, alert in enumerate(alerts):  # one line per alert, no overlap
             cv2.putText(annotated_frame, f"ALERT: {format_alert(alert)}",

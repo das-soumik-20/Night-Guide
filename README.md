@@ -14,6 +14,7 @@ Low-Light and Night-Time Obstacle Detection for Blind Pedestrians: an obstacle d
 | `run_demo.py` | Detection + tracking + alert loop with on-screen overlay |
 | `alert_logic.py` | Class filtering, distance/direction, `ObjectTracker`, alert ranking |
 | `merge_detections.py` | IoU-based merge of thermal + RGB detections (for when two separate camera feeds are available) |
+| `low_light.py` | Low-light boost (adaptive gamma + CLAHE) applied to dark frames before detection |
 | `find_camera.py` | Lists working camera indexes (laptop webcam, phone-as-webcam, USB) |
 | `test_alert.py` | Offline tests for the alert pipeline – no camera or model needed |
 | `train.py` / `evaluate.py` | Train the models / plot per-class mAP50 on the test split |
@@ -55,6 +56,15 @@ DroidCam's Windows virtual webcam does not work with OpenCV (green/empty frames)
    python main.py --source http://<phone-ip>:4747/video --model rgb
    ```
 Use `--model rgb` for a phone: it is a normal colour camera, the thermal model expects heat images.
+
+### Low-light boost
+Dark frames are brightened (adaptive gamma) and their contrast restored (CLAHE) before the RGB model sees them; very dark frames are lightly de-noised first. It only kicks in when the average brightness is below 90/255, costs ~5 ms per frame, and the window shows `low-light boost` when active. Thermal frames are never boosted.
+```bash
+python main.py --source http://<phone-ip>:4747/video --model rgb                  # auto (default)
+python main.py --source http://<phone-ip>:4747/video --model rgb --enhance off    # compare without it
+python main.py --source http://<phone-ip>:4747/video --model rgb --enhance on     # force it on
+```
+Settings are at the top of `low_light.py`.
 
 ### Confidence thresholds
 A detection must be ≥ 50% confident to count. Classes the models are weak on (bicycle, truck, sign, fire hydrant, traffic light) need ≥ 70% to avoid false alarms. Tune `MIN_CONFIDENCE` in `alert_logic.py`.
