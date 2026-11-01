@@ -12,7 +12,7 @@ from pathlib import Path
 import cv2
 from ultralytics import YOLO
 
-from alert_logic import (DANGER_DISTANCE_M, DEFAULT_MIN_CONFIDENCE, MIN_PERSIST_S, ObjectTracker,
+from alert_logic import (DANGER_DISTANCE_M, DEFAULT_MIN_CONFIDENCE, ObjectTracker,
                          format_alert, passes_confidence)
 
 THERMAL_MODEL_PATH = 'runs/detect/thermal_full/weights/best.pt'
@@ -108,12 +108,15 @@ def draw_tracks(frame, tracks):
     return frame
 
 
-def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, save_path=None):
+def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, save_path=None,
+                 min_persist_s=0.0):
     models = load_models(model)
     cap, is_image = open_source(source)
     is_file = not (isinstance(source, int) or str(source).isdigit() or str(source).startswith('http'))
-    # a single photo can't show persistence, so confirm immediately there
-    tracker = ObjectTracker(danger_distance_m or DANGER_DISTANCE_M, 0 if is_image else MIN_PERSIST_S)
+    # min_persist_s > 0 (--min-persist): only show/alert objects seen that long.
+    # A single photo can't show persistence, so it is always off there.
+    min_persist_s = 0.0 if is_image else (min_persist_s or 0.0)
+    tracker = ObjectTracker(danger_distance_m or DANGER_DISTANCE_M, min_persist_s)
     on_screen = []  # (alert text, expiry time)
 
     if not cap.isOpened():
@@ -152,9 +155,9 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, s
             on_screen.append((f"ALERT: {format_alert(alert)}", now + ALERT_HOLD_S))
         on_screen = [(text, until) for text, until in on_screen if until > now][-4:]
 
-        if show_conf:  # debug: raw model output, every box above --show-conf
+        if show_conf or not min_persist_s:  # every detection the model made (default)
             annotated_frame = chosen_results.plot()
-        else:          # normal: only objects confirmed by the tracker
+        else:          # --min-persist: only objects confirmed by the tracker
             confirmed = [t for t in active_tracks if tracker.is_confirmed(t, now)]
             annotated_frame = draw_tracks(frame.copy(), confirmed)
 

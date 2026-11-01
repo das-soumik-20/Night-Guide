@@ -10,6 +10,7 @@ Examples:
     python main.py --source 0 --model yolov8n.pt     # stock COCO model, handy for indoor testing
     python main.py --source 0 --show-conf 0.2        # debug: also draw low-confidence detections
     python main.py --source road.mp4 --model rgb --save output/road_demo.mp4   # save result for slides
+    python main.py --source road.mp4 --model rgb --min-persist 1.0  # hide objects seen < 1 s
     python main.py --evaluate                        # re-run test-set evaluation for both models
 """
 import argparse
@@ -37,6 +38,9 @@ def main():
                         help='debug: draw every detection above this confidence (e.g. 0.2); alerts unchanged')
     parser.add_argument('--save', default=None,
                         help='save the annotated result (boxes + alerts), e.g. output/road_demo.mp4 or output/photo.jpg')
+    parser.add_argument('--min-persist', type=float, default=0.0,
+                        help='only show/alert objects tracked at least this many seconds, e.g. 1.0 '
+                             '(filters flickering false positives, but can miss short appearances). Default: off')
     parser.add_argument('--evaluate', action='store_true',
                         help='evaluate both trained models on the test split instead of running the demo')
     args = parser.parse_args()
@@ -47,7 +51,8 @@ def main():
 
     print("\nRunning demo...")
     run_on_video(args.source, model=args.model, danger_distance_m=args.danger_distance,
-                 show_conf=args.show_conf, save_path=args.save)
+                 show_conf=args.show_conf, save_path=args.save,
+                 min_persist_s=args.min_persist)
 
 
 if __name__ == "__main__":
