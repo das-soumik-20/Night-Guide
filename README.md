@@ -40,6 +40,7 @@ python main.py --source 0                               # live webcam
 python main.py --source 2 --model rgb                   # phone as webcam, RGB model only
 python main.py --source 0 --model yolov8n.pt            # stock COCO model, good for indoor tests
 python main.py --danger-distance 3                      # alert from 3 m instead of 2 m
+python main.py --source road.mp4 --model rgb --save output/road_demo.mp4   # save annotated video
 python main.py --evaluate                               # regenerate the charts in results/
 python test_alert.py                                    # check the alert logic
 ```

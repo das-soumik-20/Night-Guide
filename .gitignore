@@ -3,3 +3,4 @@ data/
 __pycache__/
 snapshots/
 cam_snapshots/
+output/

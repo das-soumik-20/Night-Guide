@@ -77,7 +77,7 @@ def save_snapshot(raw, annotated):
     print(f"Saved snapshots/{stamp}_*.jpg")
 
 
-def run_on_video(source, model='both', danger_distance_m=None, show_conf=None):
+def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, save_path=None):
     models = load_models(model)
     tracker = ObjectTracker(danger_distance_m) if danger_distance_m else ObjectTracker()
 
@@ -85,6 +85,10 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None):
     if not cap.isOpened():
         print(f"Could not open source: {source}")
         return
+
+    writer = None
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    fps = fps if fps and 1 < fps < 121 else 30.0  # live streams often report 0
 
     print("Running... click the video window, press 's' to save a snapshot, 'q' to quit")
     while cap.isOpened():
@@ -113,6 +117,15 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None):
             cv2.putText(annotated_frame, f"ALERT: {format_alert(alert)}",
                         (20, 65 + 35 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
+        if save_path and not is_image:
+            if writer is None:
+                Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+                h, w = annotated_frame.shape[:2]
+                writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+            writer.write(annotated_frame)
+        elif save_path and is_image:
+            cv2.imwrite(save_path, annotated_frame)
+
         cv2.imshow('Night-Guide Demo', annotated_frame)
         # images stay open until a key is pressed; video/camera keep streaming
         key = cv2.waitKey(0 if is_image else 1) & 0xFF
@@ -122,6 +135,10 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None):
             break
 
     cap.release()
+    if writer is not None:
+        writer.release()
+    if save_path:
+        print(f"Saved annotated output to {save_path}")
     cv2.destroyAllWindows()
 
 
