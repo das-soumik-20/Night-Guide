@@ -33,6 +33,7 @@ pip install -r requirements.txt
 The `data/` folder (FLIR dataset + test videos) is not in git – place it in the project root.
 
 ## Usage
+Defaults: **RGB model** and **spoken alerts** – add `--model yolov8n.pt` / `--model both` or `--no-speak` to change.
 ```bash
 python main.py                                          # default test video
 python main.py --source data/test_videos/human_night.mp4
@@ -60,12 +61,12 @@ DroidCam's Windows virtual webcam does not work with OpenCV (green/empty frames)
 Use `--model rgb` for a phone: it is a normal colour camera, the thermal model expects heat images.
 
 ### Spoken alerts (text-to-speech)
-Add `--speak` to hear alerts out loud, e.g. *"Car on your left, 1.5 meters"* or *"Person ahead, 1 meter"*. On Windows this uses the built-in Windows voice – nothing extra to install. Only the newest alert is spoken; anything that waited more than 3 s is dropped, so the user never hears an outdated backlog.
+Alerts are spoken out loud by default (`--no-speak` to turn off), e.g. *"Car on your left, 1.5 meters"* or *"Person ahead, 1 meter"*. On Windows this uses the built-in Windows voice – nothing extra to install. Only the newest alert is spoken; anything that waited more than 3 s is dropped, so the user never hears an outdated backlog.
 ```bash
-python main.py --source http://<phone-ip>:4747/video --model rgb --speak          # live
-python main.py --source data/test_videos/Vnit.mp4 --model rgb --speak --save output/vnit.mp4
+python main.py --source http://<phone-ip>:4747/video                       # live
+python main.py --source data/test_videos/Vnit.mp4 --save output/vnit.mp4
 ```
-With `--save` on a video file this also writes `output/vnit_voice.mp4`: the annotated video **with the spoken alerts baked in** at the moment each one fired (H.264 + AAC, plays in PowerPoint). Needs `pip install imageio-ffmpeg`.
+With `--save` on a video file it also writes `output/vnit_voice.mp4`: the annotated video **with the spoken alerts baked in** at the moment each one fired (H.264 + AAC, plays in PowerPoint). Needs `pip install imageio-ffmpeg`.
 
 ### Confidence thresholds
 A detection must be ≥ 50% confident to count. Classes the models are weak on (bicycle, truck, sign, fire hydrant, traffic light) need ≥ 70% to avoid false alarms. Tune `MIN_CONFIDENCE` in `alert_logic.py`.
