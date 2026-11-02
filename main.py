@@ -11,6 +11,7 @@ Examples:
     python main.py --source 0 --show-conf 0.2        # debug: also draw low-confidence detections
     python main.py --source road.mp4 --model rgb --save output/road_demo.mp4   # save result for slides
     python main.py --source road.mp4 --model rgb --min-persist 1.0  # hide objects seen < 1 s
+    python main.py --source road.mp4 --model rgb --speak --save output/road.mp4  # + output/road_voice.mp4
     python main.py --evaluate                        # re-run test-set evaluation for both models
 """
 import argparse
@@ -41,6 +42,9 @@ def main():
     parser.add_argument('--min-persist', type=float, default=0.0,
                         help='only show/alert objects tracked at least this many seconds, e.g. 1.0 '
                              '(filters flickering false positives, but can miss short appearances). Default: off')
+    parser.add_argument('--speak', action='store_true',
+                        help='speak alerts out loud; with --save on a video file, also writes <name>_voice.mp4 '
+                             'with the spoken alerts baked in')
     parser.add_argument('--evaluate', action='store_true',
                         help='evaluate both trained models on the test split instead of running the demo')
     args = parser.parse_args()
@@ -52,7 +56,7 @@ def main():
     print("\nRunning demo...")
     run_on_video(args.source, model=args.model, danger_distance_m=args.danger_distance,
                  show_conf=args.show_conf, save_path=args.save,
-                 min_persist_s=args.min_persist)
+                 min_persist_s=args.min_persist, speak=args.speak)
 
 
 if __name__ == "__main__":

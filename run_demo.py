@@ -14,6 +14,7 @@ from ultralytics import YOLO
 
 from alert_logic import (DANGER_DISTANCE_M, DEFAULT_MIN_CONFIDENCE, ObjectTracker,
                          format_alert, passes_confidence)
+from speech import Speaker, alerts_to_speech, make_narrated_video
 
 THERMAL_MODEL_PATH = 'runs/detect/thermal_full/weights/best.pt'
 RGB_MODEL_PATH = 'runs/detect/rgb_full/weights/best.pt'
@@ -109,7 +110,7 @@ def draw_tracks(frame, tracks):
 
 
 def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, save_path=None,
-                 min_persist_s=0.0):
+                 min_persist_s=0.0, speak=False):
     models = load_models(model)
     cap, is_image = open_source(source)
     is_file = not (isinstance(source, int) or str(source).isdigit() or str(source).startswith('http'))
@@ -118,6 +119,9 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, s
     min_persist_s = 0.0 if is_image else (min_persist_s or 0.0)
     tracker = ObjectTracker(danger_distance_m or DANGER_DISTANCE_M, min_persist_s)
     on_screen = []  # (alert text, expiry time)
+    speaker = Speaker() if speak else None
+    spoken_events = []  # (video time, sentence) for the narrated video
+    frames_written = 0
 
     if not cap.isOpened():
         print(f"Could not open source: {source}")
@@ -153,6 +157,11 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, s
             stamp = f"[{now:6.1f}s] " if is_file else ""
             print(f"{stamp}ALERT: {format_alert(alert)}")
             on_screen.append((f"ALERT: {format_alert(alert)}", now + ALERT_HOLD_S))
+        if alerts and speak:
+            sentence = alerts_to_speech(alerts)
+            speaker.say(sentence)
+            if is_file:
+                spoken_events.append((now, sentence))
         on_screen = [(text, until) for text, until in on_screen if until > now][-4:]
 
         if show_conf or not min_persist_s:  # every detection the model made (default)
@@ -175,6 +184,7 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, s
                 h, w = annotated_frame.shape[:2]
                 writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
             writer.write(annotated_frame)
+            frames_written += 1
         elif save_path and is_image:
             cv2.imwrite(save_path, annotated_frame)
 
@@ -196,6 +206,14 @@ def run_on_video(source, model='both', danger_distance_m=None, show_conf=None, s
     if save_path:
         print(f"Saved annotated output to {save_path}")
     cv2.destroyAllWindows()
+    if speaker:
+        speaker.close()
+    # with --speak and --save on a video file, also write a copy with the voice in it
+    if speak and save_path and is_file and not is_image and frames_written:
+        out = str(Path(save_path).with_name(Path(save_path).stem + '_voice.mp4'))
+        print("Making narrated video (spoken alerts baked in)...")
+        if make_narrated_video(save_path, spoken_events, out, frames_written / fps):
+            print(f"Saved narrated video to {out}")
 
 
 if __name__ == '__main__':

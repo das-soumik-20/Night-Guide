@@ -1,0 +1,4 @@
+ultralytics
+opencv-python
+matplotlib
+imageio-ffmpeg   # only for --speak --save (narrated video); bundles its own ffmpeg

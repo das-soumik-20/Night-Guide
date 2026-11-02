@@ -15,6 +15,7 @@ Low-Light and Night-Time Obstacle Detection for Blind Pedestrians: an obstacle d
 | `run_demo.py` | Detection + tracking + alert loop with on-screen overlay |
 | `alert_logic.py` | Class filtering, distance/direction, `ObjectTracker`, alert ranking |
 | `merge_detections.py` | IoU-based merge of thermal + RGB detections (for when two separate camera feeds are available) |
+| `speech.py` | Text-to-speech for alerts (live) and narrated video export |
 | `find_camera.py` | Lists working camera indexes (laptop webcam, phone-as-webcam, USB) |
 | `test_alert.py` | Offline tests for the alert pipeline – no camera or model needed |
 | `train.py` / `evaluate.py` | Train the models / plot per-class mAP50 on the test split |
@@ -27,7 +28,7 @@ Low-Light and Night-Time Obstacle Detection for Blind Pedestrians: an obstacle d
 ```bash
 python -m venv venv
 venv\Scripts\activate          # Windows  (source venv/bin/activate on macOS/Linux)
-pip install ultralytics opencv-python matplotlib
+pip install -r requirements.txt
 ```
 The `data/` folder (FLIR dataset + test videos) is not in git – place it in the project root.
 
@@ -57,6 +58,14 @@ DroidCam's Windows virtual webcam does not work with OpenCV (green/empty frames)
    python main.py --source http://<phone-ip>:4747/video --model rgb
    ```
 Use `--model rgb` for a phone: it is a normal colour camera, the thermal model expects heat images.
+
+### Spoken alerts (text-to-speech)
+Add `--speak` to hear alerts out loud, e.g. *"Car on your left, 1.5 meters"* or *"Person ahead, 1 meter"*. On Windows this uses the built-in Windows voice – nothing extra to install. Only the newest alert is spoken; anything that waited more than 3 s is dropped, so the user never hears an outdated backlog.
+```bash
+python main.py --source http://<phone-ip>:4747/video --model rgb --speak          # live
+python main.py --source data/test_videos/Vnit.mp4 --model rgb --speak --save output/vnit.mp4
+```
+With `--save` on a video file this also writes `output/vnit_voice.mp4`: the annotated video **with the spoken alerts baked in** at the moment each one fired (H.264 + AAC, plays in PowerPoint). Needs `pip install imageio-ffmpeg`.
 
 ### Confidence thresholds
 A detection must be ≥ 50% confident to count. Classes the models are weak on (bicycle, truck, sign, fire hydrant, traffic light) need ≥ 70% to avoid false alarms. Tune `MIN_CONFIDENCE` in `alert_logic.py`.
